@@ -6,23 +6,62 @@
   <title>Exit - Exam</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="styles/style.css">
-  <style> .center{min-height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;} </style>
+  
+  <style> 
+    .center {
+      min-height: 60vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    } 
+    
+    /* 1. Video Background */
+    #bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    }
+
+    /* 2. Transparent Body */
+    body {
+      background: transparent !important;
+    }
+
+    /* 3. Glass Effect for Exit Card */
+    #exitCard {
+      background: rgba(30, 41, 59, 0.60) !important;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+  </style>
 </head>
 <body>
-  <!-- Carousel Background -->
-  <div class="carousel-bg">
-    <div class="carousel-slide active" style="background-image: url('photo1.jpg');"></div>
-    <div class="carousel-slide" style="background-image: url('photo2.jpg');"></div>
-    <div class="carousel-slide" style="background-image: url('photo3.jpg');"></div>
-  </div>
+  
+  <video autoplay muted loop playsinline id="bg-video">
+    <source src="Furina.mp4" type="video/mp4">
+    Your browser does not support HTML5 video.
+  </video>
+
+  <button id="musicToggle" class="btn btn-dark rounded-circle" onclick="toggleAudio()" 
+    style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; width: 50px; height: 50px; 
+    display: flex; align-items: center; justify-content: center; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.2);">
+    <i class="bi bi-volume-mute-fill" id="musicIcon" style="font-size: 1.5rem;"></i>
+  </button>
 
   <main class="container center">
     <div class="card card-custom text-center" id="exitCard">
       <div class="card-body">
         <h2 class="card-title">Answers Submitted</h2>
-  <p id="scoreText" class="mb-2">Your Score: -</p>
-  <p id="violationText" class="mb-2">If you exited by mistake or had technical difficulties, your instructor can assist you.</p>
-  <p id="submitStatusText" class="mb-2 text-muted">Submitting status: checking...</p>
+        <p id="scoreText" class="mb-2">Your Score: -</p>
+        <p id="violationText" class="mb-2">If you exited by mistake or had technical difficulties, your instructor can assist you.</p>
+        <p id="submitStatusText" class="mb-2 text-muted">Submitting status: checking...</p>
         <div class="d-flex gap-2 justify-content-center mt-3">
           <a href="index.html" class="btn btn-accent">Return Back to Login</a>
           <button id="closeBtn" class="btn btn-secondary">Exit Browser</button>
@@ -30,22 +69,38 @@
       </div>
     </div>
   </main>
-  <!-- Carousel Script -->
+  
   <script>
-    // Auto-rotate carousel background slides every 8 seconds
-    let currentSlide = 0;
-    const slides = document.querySelectorAll('.carousel-slide');
-    
-    function rotateCarousel() {
-      slides.forEach((slide, index) => {
-        slide.classList.remove('active');
-      });
-      currentSlide = (currentSlide + 1) % slides.length;
-      slides[currentSlide].classList.add('active');
+    function toggleAudio() {
+      var video = document.getElementById("bg-video");
+      var icon = document.getElementById("musicIcon");
+      var btn = document.getElementById("musicToggle");
+
+      if (!video) return;
+
+      if (video.muted) {
+        // UNMUTE
+        video.muted = false;
+        video.volume = 1.0;
+        
+        icon.classList.remove("bi-volume-mute-fill");
+        icon.classList.add("bi-volume-up-fill");
+        btn.classList.remove("btn-dark");
+        btn.classList.add("btn-accent");
+        
+        var playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => { console.log("Playback prevented:", error); });
+        }
+      } else {
+        // MUTE
+        video.muted = true;
+        icon.classList.remove("bi-volume-up-fill");
+        icon.classList.add("bi-volume-mute-fill");
+        btn.classList.remove("btn-accent");
+        btn.classList.add("btn-dark");
+      }
     }
-    
-    // Start carousel rotation when page loads
-    setInterval(rotateCarousel, 6000);
   </script>
 
   <script>
