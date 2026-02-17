@@ -3,7 +3,14 @@
 // a deployment-specific URL into `window.ANSWER_API_URL` after this script
 // is loaded (see inline script in `index.html`/`exam.html`). To ensure the
 // client uses the injected URL, resolve the effective API URL at call time.
-const FALLBACK_ANSWER_API_URL = "https://script.google.com/macros/s/AKfycbyq5gga_402JbgBtjexMuXN9x-muanN4ke1wC0kEZNB_-T5WCMfyx_lS5-qXl3RQkU/exec";
+const FALLBACK_ANSWER_API_URL = "https://script.google.com/macros/s/AKfycby6B9OgDmMNJqGmDNBvF7MJnAaV1wXTnvmzjjCEqn8vIh1zEFx7Izn3jxEJIsvnuXF4/exec";
+
+// Add this near your other let/const variables
+let allQuestionsMasterList = [];
+let visitedQuestions = new Set();
+let examGlobalTimerSeconds = null; // Stores the E2 value (in seconds)
+let isGlobalTimerActive = false;   // Flag to switch modes
+let globalTimerInterval = null;    // Reference to the interval
 
 function apiUrl() {
   try {
@@ -133,6 +140,36 @@ function updateHudEl(el, text) {
   setTimeout(() => el.classList.remove('updated'), 600);
 }
 
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// --- STEP 2C: THE UPDATED TIMER DISPLAY LOGIC ---
+function startGlobalCountdown() {
+  if (globalTimerInterval) clearInterval(globalTimerInterval);
+  
+  const timerPill = document.getElementById('examTimer'); // Using your existing ID 'examTimer'
+  
+  globalTimerInterval = setInterval(() => {
+    if (examGlobalTimerSeconds <= 0) {
+      clearInterval(globalTimerInterval);
+      finishExam("Total Exam Time Expired"); // Changed to match your function name 'finishExam'
+      return;
+    }
+    
+    examGlobalTimerSeconds--;
+    if (timerPill) {
+      updateHudEl(timerPill, 'Time Left: ' + formatTime(examGlobalTimerSeconds));
+      // Add a red warning if less than 1 minute left
+      if (examGlobalTimerSeconds < 60) {
+        timerPill.classList.add('bg-danger');
+      }
+    }
+  }, 1000);
+}
+
 function formatTime(s) {
   const m = Math.floor(s / 60).toString().padStart(2, '0');
   const sec = (s % 60).toString().padStart(2, '0');
@@ -229,52 +266,89 @@ function submitAnswer(userAnswer) {
   const q = questions[current];
   if (!q) return;
   const correct = answersMap[q.code] || '';
+
+  // 1. Save the answer
   userAnswers[q.code] = userAnswer;
-  // Persist user answers and clear any draft for this code
+
+  // 2. Persist user answers and clear drafts
   try {
     localStorage.setItem('exam_user_answers_v1', JSON.stringify(userAnswers));
     const drafts = JSON.parse(localStorage.getItem('exam_drafts_v1') || '{}');
     delete drafts[q.code];
     localStorage.setItem('exam_drafts_v1', JSON.stringify(drafts));
   } catch (e) {}
-  // if this question was part of a skipped batch previously, remove from skippedBatch storage and update SQ pill
+
+  // 3. Remove from skipped batch if applicable
   const sbIndex = skippedBatch.findIndex(s => s.code === q.code);
   if (sbIndex !== -1) {
-    skippedBatch.splice(sbIndex,1);
+    skippedBatch.splice(sbIndex, 1);
     saveSkippedBatch();
-    const sqUp = document.getElementById('skippedPill'); if (sqUp) sqUp.textContent = `Skipped ${skippedBatch.length}`;
+    const sqUp = document.getElementById('skippedPill');
+    if (sqUp) sqUp.textContent = `Check Skipped Questions ${skippedBatch.length}`;
   }
+
+  // 4. Update Score
   if (userAnswer.toLowerCase() === correct.toLowerCase()) score++;
+
+  // 5. Move to next question index
   current++;
-  // Update HUD
-  updateHudEl(examProgressEl, `Questions ${Math.min(current, questions.length)}/${questions.length}`);
-  const sqEl = document.getElementById('skippedPill'); if (sqEl) sqEl.textContent = `Skipped ${skippedBatch.length}`;
-  // if there are remaining in main sequence, continue
+
+  // --- UPDATED HUD LOGIC START ---
+  // We count the keys in userAnswers to get the actual number of answered questions
+  const answeredCount = Object.keys(userAnswers).length;
+  // We use initialTotalCount to ensure the denominator (e.g., 50) stays fixed
+  const totalFixed = typeof initialTotalCount !== 'undefined' ? initialTotalCount : questions.length;
+  
+  updateHudEl(examProgressEl, `Questions ${answeredCount}/${totalFixed}`);
+  // --- UPDATED HUD LOGIC END ---
+
+  const sqEl = document.getElementById('skippedPill');
+  if (sqEl) sqEl.textContent = `Check Skipped Questions ${skippedBatch.length}`;
+
+  // 6. Continue to next question if available
   if (current < questions.length) {
     renderQuestion(current);
     return;
   }
-  // main sequence complete: if we have a skippedBatch saved earlier, start it as a new batch (reset numbering)
+
+  // 7. Handle Skipped Phase (if main list is done but skips exist)
   if (skippedBatch.length) {
-    if (sqEl) { sqEl.classList.add('updated'); setTimeout(() => sqEl.classList.remove('updated'), 800); }
+    if (sqEl) {
+      sqEl.classList.add('updated');
+      setTimeout(() => sqEl.classList.remove('updated'), 800);
+    }
     setTimeout(() => {
-      const appended = skippedBatch.map(s => ({ code: s.code, question: s.question, timerSeconds: s.remaining || s.timerSeconds }));
-      // replace questions with skipped batch so numbering restarts for skipped-phase
+      const appended = skippedBatch.map(s => ({
+        code: s.code,
+        question: s.question,
+        timerSeconds: s.remaining || s.timerSeconds
+      }));
+      
+      // Reload questions array with skipped items
       questions = appended;
-      // do NOT overwrite initialTotalCount; keep for final score summation
+      
+      // Preserve the total count for final scoring
       totalQuestionCount = initialTotalCount || totalQuestionCount || questions.length;
+      
       skippedBatch = [];
       saveSkippedBatch();
       inSkippedPhase = true;
-      // update HUD: Questions 1/N and Skipped 0/0
-      updateHudEl(examProgressEl, `Questions 1/${questions.length}`);
-      if (sqEl) sqEl.textContent = `Skipped 0/${questions.length}`;
+
+      // --- UPDATED HUD FOR SKIPPED PHASE ---
+      // Ensure the counter doesn't reset to "1/5" but stays at "45/50" etc.
+      const currentAnswered = Object.keys(userAnswers).length;
+      updateHudEl(examProgressEl, `Questions ${currentAnswered}/${initialTotalCount}`);
+      // -------------------------------------
+
+      if (sqEl) sqEl.textContent = `Check Skipped Questions 0/${questions.length}`;
+      
       current = 0;
       renderQuestion(0);
     }, 600);
     return;
   }
-  // nothing left -> finish
+
+  // 8. Finish Exam
   finishExam();
 }
 
@@ -282,37 +356,72 @@ function submitAnswer(userAnswer) {
 function markSkipForCurrent() {
   const currentQ = questions[current];
   if (!currentQ) return;
-  // Save current remaining for later; avoid duplicates
+
+  // 1. Record as visited
+  visitedQuestions.add(currentQ.code); 
+
+  // 2. Save current remaining time and add to skippedBatch
   const toSkip = Object.assign({}, currentQ, { remaining });
+  
+  // Prevent duplicates in skippedBatch
   if (!skippedBatch.find(s => s.code === toSkip.code)) {
     skippedBatch.push(toSkip);
     saveSkippedBatch();
-    // update totalRenderedCount (initial main batch + skipped saved so far)
-    try { totalRenderedCount = (initialTotalCount || totalQuestionCount) + skippedBatch.length; } catch(e){}
   }
-  // Remove the skipped question from the current questions array so totals update immediately
+
+  // 3. Remove the skipped question from the current questions array
   questions.splice(current, 1);
-  // Update HUD to reflect new totals
-  updateHudEl(examProgressEl, `Questions ${Math.min(current+1, questions.length)}/${questions.length}`);
-  const sq = document.getElementById('skippedPill'); if (sq) sq.textContent = `Skipped ${skippedBatch.length}`;
+
+  // --- UPDATED HUD LOGIC START ---
+  // Skipping keeps the 'answered' count (numerator) the same.
+  const answeredCount = Object.keys(userAnswers).length;
+  // Use the fixed initial total so the denominator doesn't shrink.
+  // Fallback: if initialTotalCount isn't set, we estimate it by adding current + skipped + answered.
+  const totalFixed = typeof initialTotalCount !== 'undefined' 
+    ? initialTotalCount 
+    : (questions.length + skippedBatch.length + answeredCount);
+
+  updateHudEl(examProgressEl, `Questions ${answeredCount}/${totalFixed}`);
+  // --- UPDATED HUD LOGIC END ---
+
+  const sq = document.getElementById('skippedPill'); 
+  if (sq) sq.textContent = `Check Skipped Questions ${skippedBatch.length}`;
+
+  // 4. Render next question (which slid into 'current' index after splice)
   if (current < questions.length) {
     renderQuestion(current);
     return;
   }
-  // main sequence finished: if we have skippedBatch, load it as next phase
+
+  // 5. Handle Skipped Phase (if main list is done but skips exist)
   if (skippedBatch.length) {
-    questions = skippedBatch.map(s => ({ code: s.code, question: s.question, timerSeconds: s.remaining }));
-    // final total should include initial main batch + skipped batch
-    try { totalRenderedCount = (initialTotalCount || totalQuestionCount) + questions.length; } catch(e) {}
+    // Reload skipped questions into the main array
+    questions = skippedBatch.map(s => ({ 
+      code: s.code, 
+      question: s.question, 
+      timerSeconds: s.remaining // Use saved remaining time
+    }));
+    
+    // Clear batch and set phase
     skippedBatch = [];
     saveSkippedBatch();
     inSkippedPhase = true;
+    
+    // Reset index
     current = 0;
-    updateHudEl(examProgressEl, `Questions ${current+1}/${questions.length}`);
-    const sq2 = document.getElementById('skippedPill'); if (sq2) sq2.textContent = `Skipped 0/${questions.length}`;
+    
+    // Update HUD for start of skipped phase
+    const currentAnswered = Object.keys(userAnswers).length;
+    updateHudEl(examProgressEl, `Questions ${currentAnswered}/${initialTotalCount || questions.length}`);
+    
+    const sq2 = document.getElementById('skippedPill'); 
+    if (sq2) sq2.textContent = `Check Skipped Questions 0/${questions.length}`;
+    
     renderQuestion(current);
     return;
   }
+
+  // 6. Finish Exam if nothing left
   finishExam();
 }
 
@@ -334,6 +443,12 @@ async function fetchAllQuestionsAndAnswers() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     data = await res.json();
   }
+
+  if (data.globalExamTimerSeconds && data.globalExamTimerSeconds > 0) {
+      examGlobalTimerSeconds = data.globalExamTimerSeconds;
+      isGlobalTimerActive = true;
+      startGlobalCountdown(); 
+    }
     // Server may return either array or map; normalize into an array.
     examTimerSeconds = data.defaultTimerSeconds || 30;
     let questionsArr = [];
@@ -408,6 +523,8 @@ async function fetchAllQuestionsAndAnswers() {
     // Randomize question order for each attempt (display order only; codes preserved)
     // We keep codes as-is so client-side checking remains accurate
     questions = shuffleArray(fullQuestions.slice());
+
+    allQuestionsMasterList = questions.slice();
 
     // Save the full normalized (now randomized) question set to sessionStorage so scoring is deterministic client-side
     try { sessionStorage.setItem('exam_all_questions_v1', JSON.stringify(questions)); } catch (e) { console.warn('Save all questions failed', e); }
@@ -492,7 +609,7 @@ async function fetchAllQuestionsAndAnswers() {
   try { localStorage.removeItem('exam_skipped_batch_v1'); localStorage.removeItem('exam_drafts_v1'); skippedBatch = []; } catch(e){}
     // initialize HUD labels
     const prog = document.getElementById('examProgress'); if (prog) prog.textContent = `Questions 1/${questions.length}`;
-    const sq = document.getElementById('skippedPill'); if (sq) sq.textContent = `Skipped 0`;
+    const sq = document.getElementById('skippedPill'); if (sq) sq.textContent = `Check Skipped Questions 0`;
     return true;
   } catch (err) {
     console.error('Fetch failed', err);
@@ -510,64 +627,73 @@ async function fetchAllQuestionsAndAnswers() {
 }
 
 function renderQuestion(index) {
-  if (!examQuiz) return;
+  // Safety check
+  if (!questions[index]) return;
+  const q = questions[index];
+
+  // 1. Mark this question code as visited
+  visitedQuestions.add(q.code);
+
+  // 2. FIXED HUD UPDATE:
+  // Uses 'Object.keys(userAnswers).length' (actual answered count) 
+  // and 'initialTotalCount' (fixed total)
+  const totalFixed = (typeof initialTotalCount !== 'undefined' && initialTotalCount) ? initialTotalCount : questions.length;
+  updateHudEl(examProgressEl, `Questions ${Object.keys(userAnswers).length}/${totalFixed}`);
+
+  // Clear previous content
   examQuiz.innerHTML = '';
-  const q = questions[index]; if (!q) return;
-  // HUD: Questions X/Y and Skipped count
-  updateHudEl(examProgressEl, `Questions ${index+1}/${questions.length}`);
-  const sqEl = document.getElementById('skippedPill'); if (sqEl) sqEl.textContent = `Skipped ${skippedBatch.length}`;
-  // If we're rendering skipped-phase questions, use a darker card so students know it's resumed skipped batch
+
+  // Update Skipped Pill
+  const sqEl = document.getElementById('skippedPill'); 
+  if (sqEl) sqEl.textContent = `Check Skipped Questions ${skippedBatch.length}`;
+
+  // If we're rendering skipped-phase questions, use a darker card
   const card = document.createElement('div');
   card.className = 'card card-custom mx-auto fade-in' + (inSkippedPhase ? ' skipped-phase' : '');
-  const questionDiv = document.createElement('div'); questionDiv.className = 'question-text'; questionDiv.innerHTML = q.question;
+  
+  const questionDiv = document.createElement('div'); 
+  questionDiv.className = 'question-text'; 
+  questionDiv.innerHTML = q.question;
 
-  // Detect choices: try to extract option markers like 'a)', 'a.' or inline sequences like
-  // 'a) option b) option c) option' by matching each marker and capturing text up to the
-  // next marker (non-greedy). Fall back to line-based detection when options are on separate lines.
+  // Detect choices: try to extract option markers like 'a)', 'a.' or inline sequences
   const lines = q.question.split(/\r?\n/).map(l => l.trim()).filter(l => l);
-  // Regex: match letter marker (A-D or a-d) + ) or . or ] then non-greedy any text until next marker or end
-  // Examples this should handle:
-  //  - "a) alpha b) beta c) gamma"
-  //  - "A. First B. Second C. Third"
   const inlineOptRegex = /[A-Da-d][\)\.\]]\s*.*?(?=(?:\s*[A-Da-d][\)\.\]]\s*)|$)/g;
   const optionMatches = q.question.match(inlineOptRegex) || [];
   const optionLines = optionMatches.length ? optionMatches.map(s => s.trim()) : lines.filter(l => /^[A-Da-d][\)\.\]]/.test(l) || /^[A-D]\./.test(l));
 
-  // Example test cases (non-executing comments):
-  // const samples = [
-  //   'a) Alpha b) Beta c) Gamma',
-  //   'A. First B. Second C. Third',
-  //   '1. Not an option\n2. Also not',
-  //   'True or False?\nTrue\nFalse'
-  // ];
-  // samples.forEach(s => console.log('split:', s.match(inlineOptRegex)));
   const tfDetected = /\b(true|false|T\/F|T or F)\b/i.test(q.question) || optionLines.some(l => /true|false/i.test(l));
 
   let inputHtml = '';
   if (optionLines.length >= 2) {
-    // Render compact inline letter-only choices (A B C D) centered under the question.
-    // The question text already contains the option text, so we avoid repeating it here.
+    // Render compact inline letter-only choices (A B C D)
     inputHtml = '<div class="mcq-inline options-container mb-2" id="optionsList">';
     optionLines.forEach((opt, i) => {
       const m = opt.match(/^[A-Da-d]/);
       const letter = (m ? m[0] : String.fromCharCode(65 + i)).toUpperCase();
       const text = opt.replace(/^[A-Da-d][\)\.\s]*/i,'').trim();
       const id = 'opt_' + i;
-      // include title attribute so hovering reveals full option text if needed
-      inputHtml += `<label class="mcq-btn" title="${escapeHtml(text)}"><input type="radio" name="mcq" id="${id}" value="${letter}" class="form-check-input me-2"> <span class="mcq-letter">${letter}</span></label>`;
+      inputHtml += `<label class="mcq-btn" title="${text.replace(/"/g,'&quot;')}"><input type="radio" name="mcq" id="${id}" value="${letter}" class="form-check-input me-2"> <span class="mcq-letter">${letter}</span></label>`;
     });
     inputHtml += '</div>';
   } else if (tfDetected) {
-    // render True/False as visible radio inputs laid out side-by-side; submit value is 'True' or 'False'
+    // Render True/False
     inputHtml = '<div class="tf-options mb-2 options-container" id="optionsList">';
-    ['True','False'].forEach((t,i) => { const id = 'tf_' + i; inputHtml += `<label class="tf-btn"><input type="radio" name="mcq" id="${id}" value="${t}" class="form-check-input me-2"> <span>${t}</span></label>`; });
+    ['True','False'].forEach((t,i) => { 
+        const id = 'tf_' + i; 
+        inputHtml += `<label class="tf-btn"><input type="radio" name="mcq" id="${id}" value="${t}" class="form-check-input me-2"> <span>${t}</span></label>`; 
+    });
     inputHtml += '</div>';
   } else {
+    // Render Text Input
     inputHtml = `<input type="text" class="form-control answer-input" id="ansInput" autocomplete="off" autofocus placeholder="Enter answer">`;
   }
 
   card.innerHTML = `
     <div class="card-body p-4">
+      <h5 class="card-title text-secondary mb-3">
+        ${inSkippedPhase ? '<span class="badge bg-warning text-dark me-2">Skipped Question</span>' : ''}
+        Question ${inSkippedPhase ? '(Review)' : (allQuestionsMasterList.findIndex(x=>x.code===q.code)+1)}
+      </h5>
       ${questionDiv.outerHTML}
       <div class="options-block-sep">
         ${inputHtml}
@@ -597,10 +723,27 @@ function renderQuestion(index) {
       }
     });
     // restore draft if exists
-    setTimeout(() => { try { const drafts = JSON.parse(localStorage.getItem('exam_drafts_v1') || '{}'); const q = questions[current]; if (q && drafts[q.code]) { ansInput.value = drafts[q.code]; ansInput.style.height = 'auto'; ansInput.style.height = (ansInput.scrollHeight) + 'px'; } } catch(e){}; ansInput.focus(); ansInput.select?.(); }, 120);
+    setTimeout(() => { 
+        try { 
+            const drafts = JSON.parse(localStorage.getItem('exam_drafts_v1') || '{}'); 
+            const q = questions[current]; 
+            if (q && drafts[q.code]) { 
+                ansInput.value = drafts[q.code]; 
+                ansInput.style.height = 'auto'; 
+                ansInput.style.height = (ansInput.scrollHeight) + 'px'; 
+            } 
+        } catch(e){}; 
+        ansInput.focus(); 
+    }, 120);
   }
-  startTimerForQuestion();
 
+  // Start question timer (unless global timer is forcing)
+  if (!isGlobalTimerActive) {
+    if (q.timerSeconds) startTimerForQuestionWithRemaining(q.remaining || q.timerSeconds);
+    else startTimerForQuestion();
+  }
+
+  // Attach Submit Event
   const submitBtnEl = document.getElementById('submitBtn');
   if (submitBtnEl) {
     submitBtnEl.addEventListener('click', () => {
@@ -608,25 +751,28 @@ function renderQuestion(index) {
       const radio = examQuiz.querySelector('input[type="radio"]:checked');
       if (radio) ans = radio.value.trim();
       else if (ansInput) ans = ansInput.value.trim() || '-';
-      // Confirm and submit locally; no per-answer network writes
+      
+      // Confirm and submit locally
       showConfirmModal(ans, () => { submitAnswer(ans); });
     });
   }
 
+  // Attach Skip Event
   const skipBtn = document.getElementById('skipBtn');
   if (skipBtn) {
     // remove skip button during skipped-phase (students can only skip once)
     if (inSkippedPhase) skipBtn.remove();
     else skipBtn.addEventListener('click', () => { markSkipForCurrent(); });
   }
-
-  // If we just entered the skipped-phase, show a small banner
-  if (inSkippedPhase && index === 0) {
-    const banner = document.createElement('div');
-    banner.className = 'resume-banner mb-3';
-    banner.textContent = 'Resuming skipped questions';
-    examQuiz.prepend(banner);
-    setTimeout(() => { banner.classList.add('show'); setTimeout(() => banner.classList.remove('show'), 1800); }, 50);
+  
+  // Handle Enter key for text inputs
+  if (ansInput) {
+    ansInput.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitBtnEl.click();
+      }
+    };
   }
 }
 
@@ -1043,4 +1189,98 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   // Start (fresh) exam initialization (delegated to startExam so reload-resume can reuse it)
   await startExam(lastName, firstName, code);
+});
+
+// Initialize the Modal
+const skippedModal = new bootstrap.Modal(document.getElementById('skippedModal'));
+const skippedListEl = document.getElementById('skippedList');
+
+function showSkippedQuestions() {
+    const skippedListEl = document.getElementById('skippedList');
+    if (!skippedListEl) return;
+    skippedListEl.innerHTML = ''; 
+
+    // 1. Check if there are actually any skipped questions
+    if (skippedBatch.length === 0) {
+        skippedListEl.innerHTML = '<p class="text-center p-3 text-muted">No skipped questions pending.</p>';
+        skippedModal.show();
+        return;
+    }
+
+    // 2. Create the list
+    const listGroup = document.createElement('div');
+    listGroup.className = 'list-group';
+
+    skippedBatch.forEach((q, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+        
+        // Format the text (remove HTML tags for clean display)
+        const plainText = q.question.replace(/<[^>]*>/g, '').substring(0, 60) + '...';
+        
+        btn.innerHTML = `
+            <div>
+                <strong>${q.code}</strong>
+                <div class="small text-muted">${plainText}</div>
+            </div>
+            <span class="badge bg-primary rounded-pill">Answer Now</span>
+        `;
+
+        // 3. The "Click to Answer" Logic
+        btn.onclick = () => {
+            // A. Remove this specific question from the skipped batch
+            const retrievedQ = skippedBatch.splice(index, 1)[0];
+            saveSkippedBatch(); // Update storage
+
+            // B. Ensure the timer respects the time they had left (prevent cheating)
+            // We map 'remaining' back to 'timerSeconds' so they resume with their saved time
+            if (retrievedQ.remaining) {
+                retrievedQ.timerSeconds = retrievedQ.remaining;
+            }
+
+            // C. Insert the question back into the ACTIVE exam array at the CURRENT position
+            // This pushes the current question down by 1 and places the skipped one in front
+            questions.splice(current, 0, retrievedQ);
+
+            // D. Render the retrieved question immediately
+            renderQuestion(current);
+
+            // E. Update the skipped count in the HUD
+            const sq = document.getElementById('skippedPill');
+            if(sq) sq.textContent = `Check Skipped Questions ${skippedBatch.length}`;
+
+            // F. Close the modal
+            skippedModal.hide();
+        };
+
+        listGroup.appendChild(btn);
+    });
+
+    skippedListEl.appendChild(listGroup);
+    skippedModal.show();
+}
+
+// Navigation: Move to the previous question
+function prevQuestion() {
+  if (current > 0) {
+    current--;
+    visitedQuestions.add(current); // Track the question as visited
+    renderQuestion(current);
+  }
+}
+// Function to navigate to a specific question
+function jumpToQuestion(index) {
+    current = index; // Update the current question pointer
+    renderQuestion(current); // Re-render the UI
+}
+
+// Attach to your "Skipped" HUD pill or button
+document.addEventListener('DOMContentLoaded', () => {
+    const skippedBtn = document.getElementById('skippedPill');
+    if (skippedBtn) {
+        skippedBtn.onclick = (e) => {
+            e.preventDefault();
+            showSkippedQuestions(); // Call your function here
+        };
+    }
 });
