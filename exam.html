@@ -8,13 +8,55 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles/style.css">
+
+  <style>
+    /* 1. Video Background */
+    #bg-video {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    }
+
+    /* 2. Transparent Body */
+    body {
+      background: transparent !important;
+    }
+
+    /* 3. Glass Header & Footer */
+    .header-bg, footer {
+      background: rgba(15, 23, 42, 0.8) !important;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+
+    /* 4. Glass Effect for Questions (overriding style.css) */
+    .card-custom, .pill-custom {
+      background: rgba(30, 41, 59, 0.75) !important;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    }
+  </style>
 </head>
 <body>
-  <div class="carousel-bg">
-    <div class="carousel-slide active" style="background-image: url('photo1.jpg');"></div>
-    <div class="carousel-slide" style="background-image: url('photo2.jpg');"></div>
-    <div class="carousel-slide" style="background-image: url('photo3.jpg');"></div>
-  </div>
+  
+  <video autoplay muted loop playsinline id="bg-video">
+    <source src="Furina.mp4" type="video/mp4">
+    Your browser does not support HTML5 video.
+  </video>
+
+  <button id="musicToggle" class="btn btn-dark rounded-circle" onclick="toggleAudio()" 
+    style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; width: 50px; height: 50px; 
+    display: flex; align-items: center; justify-content: center; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.2);">
+    <i class="bi bi-volume-mute-fill" id="musicIcon" style="font-size: 1.5rem;"></i>
+  </button>
+
   <header class="header-bg">
     <h1>Exam In Progress</h1>
   </header>
@@ -22,44 +64,51 @@
   <main class="container py-4 exam-main">
     <div class="hud-pills">
       <span class="pill-custom" id="examProgress">Questions 0/0</span>
-      <span class="pill-custom" id="skippedPill">Skipped 0</span>
+      <span class="pill-custom" id="skippedPill">Check Skipped Questions 0</span>
       <span class="pill-custom" id="examTimer">Time: 00:00</span>
     </div>
 
-  <!-- question rendering area (kept minimal - no per-question list) -->
   <div id="examQuiz" class="w-100">
-      <!-- Questions are rendered here by scripts/exam.js -->
-    </div>
-    <!-- Reload prevention handled via the shared warning modal to centralize behavior warnings -->
-  </main>
+      </div>
+    </main>
 
   <footer class="mt-auto">Proverbs 16:28 A fraudulent man sows strife: and a whisperer separates chief friends.</footer>
   
-   <!-- Bootstrap JS -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  <!-- Carousel Script -->
   <script>
-    // Auto-rotate carousel background slides every 8 seconds
-    let currentSlide = 0;
-    const slides = document.querySelectorAll('.carousel-slide');
-    
-    function rotateCarousel() {
-      slides.forEach((slide, index) => {
-        slide.classList.remove('active');
-      });
-      currentSlide = (currentSlide + 1) % slides.length;
-      slides[currentSlide].classList.add('active');
+    function toggleAudio() {
+      var video = document.getElementById("bg-video");
+      var icon = document.getElementById("musicIcon");
+      var btn = document.getElementById("musicToggle");
+
+      if (!video) return;
+
+      if (video.muted) {
+        // UNMUTE
+        video.muted = false;
+        video.volume = 1.0;
+        
+        icon.classList.remove("bi-volume-mute-fill");
+        icon.classList.add("bi-volume-up-fill");
+        btn.classList.remove("btn-dark");
+        btn.classList.add("btn-accent");
+        
+        var playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => { console.log("Playback prevented:", error); });
+        }
+      } else {
+        // MUTE
+        video.muted = true;
+        icon.classList.remove("bi-volume-up-fill");
+        icon.classList.add("bi-volume-mute-fill");
+        btn.classList.remove("btn-accent");
+        btn.classList.add("btn-dark");
+      }
     }
-    
-    // Start carousel rotation when page loads
-    setInterval(rotateCarousel, 6000);
   </script>
 
-  <!-- Modals reused from index can be present but will be wired in exam.js -->
-  <!-- Warning/Confirm/Duplicate/Error modals are present in index.html and available via bootstrap.Modal if both pages served on same origin. -->
-
-  <!-- Warning Modal (for violations) -->
   <div class="modal fade" id="warningModal" tabindex="-1" aria-labelledby="warningModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content modal-content-custom">
@@ -81,7 +130,23 @@
     </div>
   </div>
 
-  <!-- Confirm Modal (for answer submission) -->
+  <div class="modal fade" id="skippedModal" tabindex="-1" aria-labelledby="skippedModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content modal-content-custom">
+      <div class="modal-header modal-header-custom">
+        <h5 class="modal-title" id="skippedModalLabel">
+          <i class="bi bi-skip-forward-circle me-2"></i>Review Skipped Questions
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+    
+    <div id="skippedList" class="d-flex flex-wrap gap-2"></div>
+</div>
+      </div>
+    </div>
+  </div>
+</div>
+
   <div class="modal fade" id="confirmModal" tabindex="-1" aria-labelledby="confirmModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content modal-content-custom">
@@ -100,7 +165,6 @@
     </div>
   </div>
 
-  <!-- Duplicate Modal -->
   <div class="modal fade" id="duplicateModal" tabindex="-1" aria-labelledby="duplicateModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content modal-content-custom">
@@ -121,7 +185,6 @@
     </div>
   </div>
 
-  <!-- Enhanced Error Modal (Dynamic Messages for Connection/Sheet/Questions Issues) -->
   <div class="modal fade" id="errorModal" tabindex="-1" aria-labelledby="errorModalLabel" aria-hidden="true">
       <div class="modal-dialog">
           <div class="modal-content">
@@ -143,10 +206,8 @@
   <script>
     // Global API endpoint for this deployment (set from new Apps Script deploy ID)
     // Placed before runtime script so `exam.js` can read it on load.
-    window.ANSWER_API_URL = 'https://script.google.com/macros/s/AKfycbyq5gga_402JbgBtjexMuXN9x-muanN4ke1wC0kEZNB_-T5WCMfyx_lS5-qXl3RQkU/exec';
+    window.ANSWER_API_URL = 'https://script.google.com/macros/s/AKfycby6B9OgDmMNJqGmDNBvF7MJnAaV1wXTnvmzjjCEqn8vIh1zEFx7Izn3jxEJIsvnuXF4/exec';
   </script>
   <script src="scripts/exam.js"></script>
 </body>
 </html>
-
-
